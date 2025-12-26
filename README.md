@@ -2,7 +2,11 @@
 
 **Quintry** is an interactive geography quiz application that tests your knowledge of world ports. Challenge yourself to identify port locations on a world map across different regions and difficulty levels.
 
-![Quintry Logo](src-tauri/icons/icon.png)
+## Quick Start Guide
+
+[🎥 Watch the Mini Guide Video](Quintry_Mini_Guide.mp4)
+
+<video src="Quintry_Mini_Guide.mp4" controls autoplay loop muted width="100%"></video>
 
 ## Features
 
