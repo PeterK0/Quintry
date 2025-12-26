@@ -358,7 +358,8 @@ export default function AnswerPanel({
       )}
 
       {activeTab === 'settings' && (
-        <div className="flex flex-col h-full space-y-6">
+        <div className="flex-1 overflow-y-auto pr-2 pb-4">
+          <div className="space-y-6">
           {/* Port List Selector */}
           <div className="space-y-2">
             <label className="text-sm font-bold text-slate-300 uppercase tracking-wide">Port List</label>
@@ -515,13 +516,14 @@ export default function AnswerPanel({
           </div>
 
           {/* Begin Quiz Button */}
-          <div className="flex-1 flex items-end">
+          <div className="mt-2 pt-6 border-t border-slate-700/50">
             <button
               onClick={onBeginQuiz}
-              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-4 px-4 rounded-xl text-lg transition-all duration-200 shadow-xl shadow-blue-500/40 hover:shadow-2xl hover:shadow-blue-500/60 hover:scale-[1.02]"
+              className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-4 px-4 rounded-xl text-lg transition-all duration-200 hover:scale-[1.02]"
             >
               Begin Quiz
             </button>
+          </div>
           </div>
         </div>
       )}
