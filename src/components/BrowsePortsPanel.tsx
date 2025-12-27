@@ -16,17 +16,42 @@ export default function BrowsePortsPanel({ ports, onPortClick, browsedPortMarker
   // Filter to only show custom (non-built-in) lists
   const customLists = availableLists.filter(list => !list.isBuiltIn);
 
-  // Fuzzy search - matches if search term appears anywhere in city, country, or region
+  // Helper to determine geographical region from country
+  const getGeographicalRegion = (country: string): string => {
+    const countryLower = country.toLowerCase();
+    if (['china', 'japan', 'south korea', 'india', 'indonesia', 'malaysia', 'singapore', 'thailand', 'vietnam', 'philippines', 'bangladesh', 'pakistan', 'taiwan', 'hong kong', 'sri lanka', 'myanmar', 'cambodia'].some(c => countryLower.includes(c))) {
+      return 'Asia';
+    }
+    if (['united kingdom', 'france', 'germany', 'spain', 'italy', 'netherlands', 'belgium', 'poland', 'greece', 'portugal', 'sweden', 'norway', 'denmark', 'finland', 'ireland', 'romania', 'ukraine', 'turkey', 'russia'].some(c => countryLower.includes(c))) {
+      return 'Europe';
+    }
+    if (['usa', 'united states', 'u.s.a.', 'canada', 'mexico', 'brazil', 'argentina', 'chile', 'colombia', 'peru', 'venezuela', 'ecuador', 'uruguay', 'panama', 'costa rica', 'dominican republic', 'puerto rico', 'jamaica', 'cuba'].some(c => countryLower.includes(c))) {
+      return 'Americas';
+    }
+    if (['south africa', 'egypt', 'nigeria', 'kenya', 'morocco', 'tanzania', 'ghana', 'algeria', 'tunisia', 'ethiopia', 'libya', 'senegal', 'angola', 'mozambique', 'cameroon', 'ivory coast', 'madagascar'].some(c => countryLower.includes(c))) {
+      return 'Africa';
+    }
+    if (['australia', 'new zealand', 'papua new guinea', 'fiji'].some(c => countryLower.includes(c))) {
+      return 'Oceania';
+    }
+    return 'Other';
+  };
+
+  // Fuzzy search - matches if search term appears anywhere in city, country, state/region, or geographical region
   const filteredPorts = useMemo(() => {
     if (!searchTerm.trim()) return ports.slice(0, 50); // Show first 50 by default
 
     const search = searchTerm.toLowerCase();
     return ports
-      .filter(port =>
-        port.name.toLowerCase().includes(search) ||
-        port.country.toLowerCase().includes(search) ||
-        (port.region && port.region.toLowerCase().includes(search))
-      )
+      .filter(port => {
+        const geoRegion = getGeographicalRegion(port.country).toLowerCase();
+        return (
+          port.name.toLowerCase().includes(search) ||
+          port.country.toLowerCase().includes(search) ||
+          (port.region && port.region.toLowerCase().includes(search)) ||
+          geoRegion.includes(search)
+        );
+      })
       .slice(0, 50); // Limit to 50 results
   }, [ports, searchTerm]);
 

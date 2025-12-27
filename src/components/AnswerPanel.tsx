@@ -1,6 +1,7 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import BrowsePortsPanel from './BrowsePortsPanel';
 import ListsPanel from './ListsPanel';
+import StatsPanel from './StatsPanel';
 import type { Port, QuizResult, PortList } from '../types/quiz.types';
 import portsData from '../data/ports.json';
 import { deleteCustomList } from '../utils/portLists';
@@ -36,6 +37,8 @@ interface AnswerPanelProps {
   selectedCountries: string[];
   onCountryToggle: (country: string) => void;
   availableCountries: string[];
+  selectedQuestion: string | null;
+  onQuestionSelect: (letter: string) => void;
 }
 
 export default function AnswerPanel({
@@ -69,9 +72,12 @@ export default function AnswerPanel({
   selectedCountries,
   onCountryToggle,
   availableCountries,
+  selectedQuestion,
+  onQuestionSelect,
 }: AnswerPanelProps) {
-  const [activeTab, setActiveTab] = useState<'answers' | 'browse' | 'results' | 'settings' | 'lists'>('settings');
+  const [activeTab, setActiveTab] = useState<'answers' | 'browse' | 'results' | 'settings' | 'lists' | 'stats'>('settings');
   const [listsRefreshKey, setListsRefreshKey] = useState(0);
+  const questionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   // Automatically switch to correct tab when quiz state changes
   useEffect(() => {
@@ -85,17 +91,42 @@ export default function AnswerPanel({
     }
   }, [quizStarted, isSubmitted]);
 
+  // Scroll to selected question when marker is clicked
+  useEffect(() => {
+    if (selectedQuestion && questionRefs.current.has(selectedQuestion)) {
+      const element = questionRefs.current.get(selectedQuestion);
+      if (element) {
+        element.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+        });
+      }
+    }
+  }, [selectedQuestion]);
+
   // Transform all ports for encyclopedia
   const allPorts = useMemo(() => {
+    // Normalize country names to fix inconsistencies
+    const normalizeCountryName = (country: string): string => {
+      const normalized = country.trim();
+      // Consolidate USA variations to match Top 150 Ports list
+      if (normalized === 'United States' || normalized === 'U.S.A.') {
+        return 'USA';
+      }
+      return normalized;
+    };
+
     const portMap = new Map<string, Port>();
     (portsData as any[]).forEach((port: any, index: number) => {
-      const uniqueKey = `${port.CITY.toLowerCase()}-${port.COUNTRY.toLowerCase()}`;
+      const normalizedCountry = normalizeCountryName(port.COUNTRY);
+      // Use coordinates in the key to avoid removing different ports with the same name
+      const uniqueKey = `${port.CITY.toLowerCase()}-${normalizedCountry.toLowerCase()}-${port.LATITUDE}-${port.LONGITUDE}`;
       if (!portMap.has(uniqueKey)) {
         portMap.set(uniqueKey, {
           id: index + 1,
           name: port.CITY,
-          country: port.COUNTRY,
-          region: port.STATE || port.COUNTRY,
+          country: normalizedCountry,
+          region: port.STATE || normalizedCountry,
           lat: port.LATITUDE,
           lng: port.LONGITUDE,
         });
@@ -156,6 +187,20 @@ export default function AnswerPanel({
           </button>
         )}
 
+        {/* Stats Tab - Always visible when not in quiz */}
+        {!quizStarted && !isSubmitted && (
+          <button
+            onClick={() => setActiveTab('stats')}
+            className={`px-4 py-2.5 text-sm font-bold transition-colors duration-200 ${
+              activeTab === 'stats'
+                ? 'text-white border-b-2 border-blue-400'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Stats
+          </button>
+        )}
+
         {/* Answers Tab - Only during quiz */}
         {quizStarted && !isSubmitted && (
           <button
@@ -193,11 +238,28 @@ export default function AnswerPanel({
             {letters.map((letter) => {
               const hasAnswer = answers.has(letter) && answers.get(letter) !== "";
               const port = markers.get(letter);
+              const isSelected = selectedQuestion === letter;
               return (
                 <div
                   key={letter}
-                  onClick={() => port && onCenterOnPort(port)}
-                  className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 hover:border-blue-500/50 hover:bg-slate-800/70 hover:shadow-lg hover:shadow-blue-500/10 transition-all duration-200 cursor-pointer"
+                  ref={(el) => {
+                    if (el) {
+                      questionRefs.current.set(letter, el);
+                    } else {
+                      questionRefs.current.delete(letter);
+                    }
+                  }}
+                  onClick={() => {
+                    if (port) {
+                      onCenterOnPort(port);
+                      onQuestionSelect(letter);
+                    }
+                  }}
+                  className={`rounded-xl p-4 transition-all duration-200 cursor-pointer ${
+                    isSelected
+                      ? "bg-blue-500/30 border-2 border-blue-400 shadow-xl shadow-blue-500/30"
+                      : "bg-slate-800/50 border border-slate-700/50 hover:border-blue-500/50 hover:bg-slate-800/70 hover:shadow-lg hover:shadow-blue-500/10"
+                  }`}
                 >
                   <div className="flex items-center gap-3 mb-2">
                     <div className={`
@@ -223,8 +285,8 @@ export default function AnswerPanel({
                         <option value="" className="bg-slate-800">
                           Select a port...
                         </option>
-                        {portNames.map((name) => (
-                          <option key={name} value={name} className="bg-slate-800">
+                        {portNames.map((name, index) => (
+                          <option key={`${name}-${index}`} value={name} className="bg-slate-800">
                             {name}
                           </option>
                         ))}
@@ -302,14 +364,31 @@ export default function AnswerPanel({
           <div className="flex-1 overflow-y-auto space-y-3 pr-2 pb-4">
             {results.map((result) => {
               const port = markers.get(result.letter);
+              const isSelected = selectedQuestion === result.letter;
               return (
                 <div
                   key={result.letter}
-                  onClick={() => port && onCenterOnPort(port)}
-                  className={`rounded-xl p-4 border-2 shadow-md transition-all duration-200 cursor-pointer hover:scale-[1.01] ${
-                    result.isCorrect
-                      ? "bg-green-500/20 border-green-500/40 hover:shadow-lg hover:shadow-green-500/20"
-                      : "bg-red-500/20 border-red-500/40 hover:shadow-lg hover:shadow-red-500/20"
+                  ref={(el) => {
+                    if (el) {
+                      questionRefs.current.set(result.letter, el);
+                    } else {
+                      questionRefs.current.delete(result.letter);
+                    }
+                  }}
+                  onClick={() => {
+                    if (port) {
+                      onCenterOnPort(port);
+                      onQuestionSelect(result.letter);
+                    }
+                  }}
+                  className={`rounded-xl p-4 shadow-md transition-all duration-200 cursor-pointer hover:scale-[1.01] ${
+                    isSelected
+                      ? result.isCorrect
+                        ? "bg-green-500/40 border-4 border-green-400 shadow-xl shadow-green-500/40"
+                        : "bg-red-500/40 border-4 border-red-400 shadow-xl shadow-red-500/40"
+                      : result.isCorrect
+                        ? "bg-green-500/20 border-2 border-green-500/40 hover:shadow-lg hover:shadow-green-500/20"
+                        : "bg-red-500/20 border-2 border-red-500/40 hover:shadow-lg hover:shadow-red-500/20"
                   }`}
                 >
                   <div className="flex items-start gap-3">
@@ -567,6 +646,8 @@ export default function AnswerPanel({
           }}
         />
       )}
+
+      {activeTab === 'stats' && <StatsPanel />}
     </div>
   );
 }

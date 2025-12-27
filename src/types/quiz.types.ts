@@ -35,3 +35,19 @@ export interface PortListItem {
   Country: string;
   Region: string;
 }
+
+export interface QuizHistory {
+  id: string;
+  date: number;
+  score: number;
+  total: number;
+  accuracy: number;
+  duration: number;
+  difficulty: 'easy' | 'normal' | 'hard';
+  regions: string[];
+  countries: string[];
+  results: {
+    port: string;
+    isCorrect: boolean;
+  }[];
+}

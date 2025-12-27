@@ -12,6 +12,7 @@ import AnswerPanel from "./AnswerPanel";
 import QuizHeader from "./QuizHeader";
 import portsData from "../data/ports.json";
 import { getAllLists, filterPortsByList } from "../utils/portLists";
+import { saveQuizHistory } from "../utils/quizHistory";
 
 // World Atlas TopoJSON URLs by resolution
 const mapResolutions = {
@@ -55,6 +56,7 @@ export default function MapQuiz() {
   const [decoyPorts, setDecoyPorts] = useState<Port[]>([]);
   const [mapResolution] = useState<'medium'>('medium');
   const [mapLoading, setMapLoading] = useState(false);
+  const [selectedQuestion, setSelectedQuestion] = useState<string | null>(null);
 
   // Load world map data
   useEffect(() => {
@@ -128,16 +130,28 @@ export default function MapQuiz() {
   }, [isResizing]);
 
   const initializeQuiz = () => {
-    // Transform ports and ensure uniqueness by name+country
+    // Normalize country names to fix inconsistencies
+    const normalizeCountryName = (country: string): string => {
+      const normalized = country.trim();
+      // Consolidate USA variations to match Top 150 Ports list
+      if (normalized === 'United States' || normalized === 'U.S.A.') {
+        return 'USA';
+      }
+      return normalized;
+    };
+
+    // Transform ports and ensure uniqueness by name+country+coordinates
     const portMap = new Map<string, Port>();
     (portsData as any[]).forEach((port: any, index: number) => {
-      const uniqueKey = `${port.CITY.toLowerCase()}-${port.COUNTRY.toLowerCase()}`;
+      const normalizedCountry = normalizeCountryName(port.COUNTRY);
+      // Use coordinates in the key to avoid removing different ports with the same name
+      const uniqueKey = `${port.CITY.toLowerCase()}-${normalizedCountry.toLowerCase()}-${port.LATITUDE}-${port.LONGITUDE}`;
       if (!portMap.has(uniqueKey)) {
         portMap.set(uniqueKey, {
           id: index + 1,
           name: port.CITY,
-          country: port.COUNTRY,
-          region: port.STATE || port.COUNTRY,
+          country: normalizedCountry,
+          region: port.STATE || normalizedCountry,
           lat: port.LATITUDE,
           lng: port.LONGITUDE,
         });
@@ -165,7 +179,7 @@ export default function MapQuiz() {
             case 'europe':
               return ['united kingdom', 'france', 'germany', 'spain', 'italy', 'netherlands', 'belgium', 'poland', 'greece', 'portugal', 'sweden', 'norway', 'denmark', 'finland', 'ireland', 'romania', 'ukraine', 'turkey', 'russia'].some(c => country.includes(c));
             case 'americas':
-              return ['united states', 'canada', 'mexico', 'brazil', 'argentina', 'chile', 'colombia', 'peru', 'venezuela', 'ecuador', 'uruguay', 'panama', 'costa rica', 'dominican republic', 'puerto rico', 'jamaica', 'cuba'].some(c => country.includes(c));
+              return ['usa', 'united states', 'u.s.a.', 'canada', 'mexico', 'brazil', 'argentina', 'chile', 'colombia', 'peru', 'venezuela', 'ecuador', 'uruguay', 'panama', 'costa rica', 'dominican republic', 'puerto rico', 'jamaica', 'cuba'].some(c => country.includes(c));
             case 'africa':
               return ['south africa', 'egypt', 'nigeria', 'kenya', 'morocco', 'tanzania', 'ghana', 'algeria', 'tunisia', 'ethiopia', 'libya', 'senegal', 'angola', 'mozambique', 'cameroon', 'ivory coast', 'madagascar'].some(c => country.includes(c));
             case 'oceania':
@@ -182,6 +196,13 @@ export default function MapQuiz() {
       new Set(filteredPorts.map(port => port.country))
     ).sort();
     setAvailableCountries(availableCountriesSet);
+
+    // Clear selected countries that are no longer available in the current region
+    // Only update if the filtered list is actually different to avoid infinite loops
+    const filteredSelectedCountries = selectedCountries.filter(country => availableCountriesSet.includes(country));
+    if (filteredSelectedCountries.length !== selectedCountries.length) {
+      setSelectedCountries(filteredSelectedCountries);
+    }
 
     // Then filter by selected countries (if any)
     if (selectedCountries.length > 0) {
@@ -240,6 +261,8 @@ export default function MapQuiz() {
   };
 
   const handleBeginQuiz = () => {
+    // Reshuffle ports to get a fresh set each time
+    initializeQuiz();
     setQuizStarted(true);
     setQuizStartTime(Date.now());
     setBrowsedPortMarkers(new Map()); // Clear browsed markers when quiz starts
@@ -258,7 +281,11 @@ export default function MapQuiz() {
 
   const handleCenterOnPort = (port: Port) => {
     setMapCenter([port.lng, port.lat]);
-    setZoom(4); // Zoom in when centering on a port
+    // Keep current zoom level when centering on a port
+  };
+
+  const handleMarkerClick = (letter: string) => {
+    setSelectedQuestion(letter);
   };
 
   const handleAnswerChange = (letter: string, portName: string) => {
@@ -307,7 +334,27 @@ export default function MapQuiz() {
     setScore(correctCount);
     setIsSubmitted(true);
     setQuizStarted(false);
-    setQuizEndTime(Date.now());
+    const endTime = Date.now();
+    setQuizEndTime(endTime);
+
+    // Save quiz history (fire-and-forget, don't block UI)
+    saveQuizHistory({
+      id: `quiz-${endTime}`,
+      date: endTime,
+      score: correctCount,
+      total: labels.length,
+      accuracy: (correctCount / labels.length) * 100,
+      duration: Math.floor((endTime - quizStartTime) / 1000),
+      difficulty,
+      regions: selectedRegions,
+      countries: selectedCountries.length > 0 ? selectedCountries : [],
+      results: quizResults.map(r => ({
+        port: r.correctPort,
+        isCorrect: r.isCorrect,
+      })),
+    }).catch(error => {
+      console.error('Failed to save quiz history:', error);
+    });
   };
 
   const handleTryAgain = () => {
@@ -416,26 +463,85 @@ export default function MapQuiz() {
                   )}
 
                   {/* Quiz markers - color-coded when submitted */}
-                  {quizStarted && Array.from(markers.entries()).map(([letter, port]) => {
-                    // Find result for this marker to determine color
+                  {/* Render non-selected markers first */}
+                  {quizStarted && Array.from(markers.entries())
+                    .filter(([letter]) => letter !== selectedQuestion)
+                    .map(([letter, port]) => {
+                      // Find result for this marker to determine color
+                      let markerColor: 'blue' | 'green' | 'red' = 'blue';
+                      if (isSubmitted) {
+                        const result = results.find(r => r.letter === letter);
+                        markerColor = result?.isCorrect ? 'green' : 'red';
+                      }
+                      return (
+                        <PortMarker
+                          key={letter}
+                          port={port}
+                          letter={letter}
+                          zoom={zoom}
+                          color={markerColor}
+                          onClick={() => handleMarkerClick(letter)}
+                          isSelected={false}
+                        />
+                      );
+                    })}
+                  {/* Render selected marker last (appears on top) */}
+                  {quizStarted && selectedQuestion && markers.has(selectedQuestion) && (() => {
+                    const port = markers.get(selectedQuestion)!;
                     let markerColor: 'blue' | 'green' | 'red' = 'blue';
                     if (isSubmitted) {
-                      const result = results.find(r => r.letter === letter);
+                      const result = results.find(r => r.letter === selectedQuestion);
                       markerColor = result?.isCorrect ? 'green' : 'red';
                     }
                     return (
-                      <PortMarker key={letter} port={port} letter={letter} zoom={zoom} color={markerColor} />
+                      <PortMarker
+                        key={`selected-${selectedQuestion}`}
+                        port={port}
+                        letter={selectedQuestion}
+                        zoom={zoom}
+                        color={markerColor}
+                        onClick={() => handleMarkerClick(selectedQuestion)}
+                        isSelected={true}
+                      />
                     );
-                  })}
+                  })()}
 
                   {/* Results markers (when submitted but not in quiz mode) */}
-                  {isSubmitted && !quizStarted && Array.from(markers.entries()).map(([letter, port]) => {
-                    const result = results.find(r => r.letter === letter);
+                  {/* Render non-selected markers first */}
+                  {isSubmitted && !quizStarted && Array.from(markers.entries())
+                    .filter(([letter]) => letter !== selectedQuestion)
+                    .map(([letter, port]) => {
+                      const result = results.find(r => r.letter === letter);
+                      const markerColor: 'blue' | 'green' | 'red' = result?.isCorrect ? 'green' : 'red';
+                      return (
+                        <PortMarker
+                          key={letter}
+                          port={port}
+                          letter={letter}
+                          zoom={zoom}
+                          color={markerColor}
+                          onClick={() => handleMarkerClick(letter)}
+                          isSelected={false}
+                        />
+                      );
+                    })}
+                  {/* Render selected marker last (appears on top) */}
+                  {isSubmitted && !quizStarted && selectedQuestion && markers.has(selectedQuestion) && (() => {
+                    const port = markers.get(selectedQuestion)!;
+                    const result = results.find(r => r.letter === selectedQuestion);
                     const markerColor: 'blue' | 'green' | 'red' = result?.isCorrect ? 'green' : 'red';
                     return (
-                      <PortMarker key={letter} port={port} letter={letter} zoom={zoom} color={markerColor} />
+                      <PortMarker
+                        key={`selected-${selectedQuestion}`}
+                        port={port}
+                        letter={selectedQuestion}
+                        zoom={zoom}
+                        color={markerColor}
+                        onClick={() => handleMarkerClick(selectedQuestion)}
+                        isSelected={true}
+                      />
                     );
-                  })}
+                  })()}
 
                   {/* Browsed port markers (when not in quiz and not submitted) */}
                   {!quizStarted && !isSubmitted && Array.from(browsedPortMarkers.entries()).map(([key, port]) => (
@@ -531,6 +637,8 @@ export default function MapQuiz() {
                 setSelectedCountries(newCountries);
               }}
               availableCountries={availableCountries}
+              selectedQuestion={selectedQuestion}
+              onQuestionSelect={handleMarkerClick}
             />
           </div>
         </div>

@@ -6,9 +6,11 @@ interface PortMarkerProps {
   letter: string;
   zoom: number;
   color?: 'blue' | 'green' | 'red';
+  onClick?: () => void;
+  isSelected?: boolean;
 }
 
-export default function PortMarker({ port, letter, zoom, color = 'blue' }: PortMarkerProps) {
+export default function PortMarker({ port, letter, zoom, color = 'blue', onClick, isSelected = false }: PortMarkerProps) {
   // Scale markers inversely with zoom level
   const scale = 1 / zoom;
 
@@ -23,7 +25,12 @@ export default function PortMarker({ port, letter, zoom, color = 'blue' }: PortM
 
   return (
     <Marker coordinates={[port.lng, port.lat]}>
-      <g filter="url(#glow)" transform={`scale(${scale})`}>
+      <g
+        filter="url(#glow)"
+        transform={`scale(${scale})`}
+        onClick={onClick}
+        style={{ cursor: onClick ? "pointer" : "default" }}
+      >
         <defs>
           <filter id="glow">
             <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
@@ -34,17 +41,15 @@ export default function PortMarker({ port, letter, zoom, color = 'blue' }: PortM
           </filter>
         </defs>
         <circle
-          r={12}
+          r={isSelected ? 14 : 12}
           fill={selectedColor.outer}
           stroke={selectedColor.stroke}
-          strokeWidth={2.5}
-          style={{ cursor: "default" }}
+          strokeWidth={isSelected ? 3.5 : 2.5}
           opacity={0.95}
         />
         <circle
-          r={7.5}
+          r={isSelected ? 9 : 7.5}
           fill={selectedColor.inner}
-          style={{ cursor: "default" }}
         />
         <text
           textAnchor="middle"
@@ -52,7 +57,7 @@ export default function PortMarker({ port, letter, zoom, color = 'blue' }: PortM
           style={{
             fontFamily: "system-ui",
             fill: "white",
-            fontSize: "12px",
+            fontSize: isSelected ? "14px" : "12px",
             fontWeight: "900",
             pointerEvents: "none",
           }}

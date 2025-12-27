@@ -23,6 +23,10 @@ export const portNameMappings: Record<string, string> = {
   "port elisabeth|south africa": "port elizabeth|south africa",
   "saldhana bay|south africa": "saldanha bay|south africa",
   "dares salaam|tanzania": "dar es salaam|tanzania",
+  "daressalaam|tanzania": "dar es salaam|tanzania",
+  "bahia blanca|argentina": "bahia blanca|argentina",
+  "ponta do ubu|brazil": "ponta do ubu|brazil",
+  "bandar khomeini|iran": "bandar khomeini|iran",
 
   // Newly added ports from CSV data
   "sepetiba bay|brazil": "sepetiba|brazil",

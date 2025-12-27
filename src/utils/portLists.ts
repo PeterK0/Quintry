@@ -12,6 +12,16 @@ const normalize = (str: string): string => {
     .replace(/[^a-z0-9\s]/g, '');
 };
 
+// Normalize country names to fix inconsistencies (same as in MapQuiz.tsx)
+const normalizeCountryName = (country: string): string => {
+  const normalized = country.trim();
+  // Consolidate USA variations to match Top 150 Ports list
+  if (normalized === 'United States' || normalized === 'U.S.A.') {
+    return 'USA';
+  }
+  return normalized;
+};
+
 // Apply manual mappings
 const applyMapping = (portName: string, country: string): { portName: string; country: string } => {
   const key = `${normalize(portName)}|${normalize(country)}`;
@@ -26,19 +36,33 @@ const applyMapping = (portName: string, country: string): { portName: string; co
 };
 
 // Create a map of normalized ports from the database
-const createPortMap = (): Map<string, Port> => {
-  const portMap = new Map<string, Port>();
+// Using Map<string, Port[]> to handle multiple ports with the same name
+const createPortMap = (): Map<string, Port[]> => {
+  const portMap = new Map<string, Port[]>();
   (portsData as any[]).forEach((port: any, index: number) => {
-    const normalizedKey = `${normalize(port.CITY)}-${normalize(port.COUNTRY)}`;
+    const normalizedCountry = normalizeCountryName(port.COUNTRY);
+    const normalizedKey = `${normalize(port.CITY)}-${normalize(normalizedCountry)}`;
+
+    const portData: Port = {
+      id: index + 1,
+      name: port.CITY,
+      country: normalizedCountry,
+      region: port.STATE || normalizedCountry,
+      lat: port.LATITUDE,
+      lng: port.LONGITUDE,
+    };
+
     if (!portMap.has(normalizedKey)) {
-      portMap.set(normalizedKey, {
-        id: index + 1,
-        name: port.CITY,
-        country: port.COUNTRY,
-        region: port.STATE || port.COUNTRY,
-        lat: port.LATITUDE,
-        lng: port.LONGITUDE,
-      });
+      portMap.set(normalizedKey, [portData]);
+    } else {
+      // Check if this exact port (same coordinates) already exists
+      const existingPorts = portMap.get(normalizedKey)!;
+      const isDuplicate = existingPorts.some(
+        p => p.lat === portData.lat && p.lng === portData.lng
+      );
+      if (!isDuplicate) {
+        existingPorts.push(portData);
+      }
     }
   });
   return portMap;
@@ -56,21 +80,26 @@ export const matchPortListWithDatabase = (listItems: PortListItem[]): string[] =
     const normalizedKey = `${mapped.portName}-${mapped.country}`;
 
     if (portMap.has(normalizedKey)) {
-      const port = portMap.get(normalizedKey)!;
+      const ports = portMap.get(normalizedKey)!;
+      // Only add the first matching port for each list item
+      const port = ports[0];
       matchedKeys.push(`${port.name}-${port.country}`);
     } else {
       // Try to find a close match with original names
-      const originalKey = `${normalize(item["Port Name"])}-${normalize(item.Country)}`;
+      const normalizedCountry = normalizeCountryName(item.Country);
+      const originalKey = `${normalize(item["Port Name"])}-${normalize(normalizedCountry)}`;
       if (portMap.has(originalKey)) {
-        const port = portMap.get(originalKey)!;
+        const ports = portMap.get(originalKey)!;
+        const port = ports[0];
         matchedKeys.push(`${port.name}-${port.country}`);
       } else {
         // Try partial matching as last resort
         let found = false;
-        for (const [key, port] of portMap.entries()) {
+        for (const [key, ports] of portMap.entries()) {
           const searchName = normalize(item["Port Name"]);
-          const searchCountry = normalize(item.Country);
+          const searchCountry = normalize(normalizedCountry);
           if (key.includes(searchName) && key.includes(searchCountry)) {
+            const port = ports[0];
             matchedKeys.push(`${port.name}-${port.country}`);
             found = true;
             break;
@@ -160,8 +189,17 @@ export const deleteCustomList = (listId: string): void => {
 // Filter ports by a port list
 export const filterPortsByList = (allPorts: Port[], list: PortList): Port[] => {
   const keySet = new Set(list.portKeys);
-  return allPorts.filter(port => {
+  const matchedPorts: Port[] = [];
+  const seenKeys = new Set<string>();
+
+  // Only add the first port for each unique name-country combination
+  allPorts.forEach(port => {
     const key = `${port.name}-${port.country}`;
-    return keySet.has(key);
+    if (keySet.has(key) && !seenKeys.has(key)) {
+      matchedPorts.push(port);
+      seenKeys.add(key);
+    }
   });
+
+  return matchedPorts;
 };
